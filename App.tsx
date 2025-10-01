@@ -5,7 +5,7 @@ import Scheduler from './components/Scheduler';
 import LoginModal from './components/LoginModal';
 import AdminDashboard from './components/AdminDashboard';
 import { useAuth } from './contexts/AuthContext';
-import { AppStep, BookingStatus, FormData } from './types';
+import { AppStep, BookingStatus, ClientData } from './types';
 import { LoginIcon } from './components/icons/LoginIcon';
 import { supabase } from './lib/supabaseClient';
 
@@ -17,13 +17,13 @@ const App: React.FC = () => {
   
   // State for booking flow
   const [step, setStep] = useState<AppStep>('form');
-  const [formData, setFormData] = useState<FormData | null>(null);
+  const [clientData, setClientData] = useState<ClientData | null>(null);
   const [bookedSlots, setBookedSlots] = useState<string[]>([]);
   const [bookingStatus, setBookingStatus] = useState<BookingStatus>('idle');
   const [confirmedSlot, setConfirmedSlot] = useState<Date | null>(null);
 
-  const handleFormSubmit = useCallback((data: FormData) => {
-    setFormData(data);
+  const handleFormSubmit = useCallback((data: ClientData) => {
+    setClientData(data);
     setStep('scheduler');
   }, []);
 
@@ -49,86 +49,35 @@ const App: React.FC = () => {
 
 
   const handleConfirmBooking = useCallback(async (slotDate: Date) => {
-    if (!formData) return;
+    if (!clientData) return;
 
     setBookingStatus('submitting');
 
     try {
-      const sanitizeFolderName = (name: string) => {
-        return name
-          .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "")
-          .replace(/[^\w\s-]/g, '')
-          .trim()
-          .replace(/\s+/g, '_');
-      };
-
-      const uploadFile = async (file: File | null, fieldName: string): Promise<string | null> => {
-        if (!file) return null;
-        
-        const folderName = sanitizeFolderName(formData.fullName);
-        const filePath = `${folderName}/${fieldName}-${Date.now()}-${file.name}`;
-        
-        const { error: uploadError } = await supabase.storage
-          .from('documents')
-          .upload(filePath, file);
-
-        if (uploadError) {
-          throw new Error(`Falha no upload do arquivo ${fieldName}: ${uploadError.message}`);
-        }
-
-        const { data } = supabase.storage
-          .from('documents')
-          .getPublicUrl(filePath);
-        
-        return data.publicUrl;
-      };
-
-      const [proofOfResidenceUrl, photoIdUrl, otherDocumentsUrl] = await Promise.all([
-        uploadFile(formData.proofOfResidence, 'proofOfResidence'),
-        uploadFile(formData.photoId, 'photoId'),
-        uploadFile(formData.otherDocuments, 'otherDocuments'),
-      ]);
-
       const { error: insertError } = await supabase.from('appointments').insert({
-        full_name: formData.fullName,
-        cpf: formData.cpf,
-        email: formData.email,
-        phone: formData.phone,
+        full_name: clientData.fullName,
+        cpf: clientData.cpf,
+        email: clientData.email,
+        phone: clientData.phone,
         appointment_datetime: slotDate.toISOString(),
-        proof_of_residence_url: proofOfResidenceUrl,
-        photo_id_url: photoIdUrl,
-        other_documents_url: otherDocumentsUrl,
+        proof_of_residence_url: clientData.proofOfResidenceUrl,
+        photo_id_url: clientData.photoIdUrl,
+        other_documents_url: clientData.otherDocumentsUrl,
       });
 
       if (insertError) {
         throw new Error(`Falha ao salvar o agendamento: ${insertError.message}`);
       }
       
-      supabase.functions.invoke('sync-to-google-drive', {
-        body: {
-          folderName: sanitizeFolderName(formData.fullName),
-          proofOfResidenceUrl,
-          photoIdUrl,
-          otherDocumentsUrl,
-        },
-      }).then(({ data, error }) => {
-        if (error) {
-          console.error('Falha ao invocar a Edge Function para sincronizar com o Google Drive:', error);
-        } else {
-          console.log('Sincronização com Google Drive iniciada com sucesso:', data);
-        }
-      });
-      
       const sheetData = {
-        fullName: formData.fullName,
-        cpf: formData.cpf,
-        email: formData.email,
-        phone: formData.phone,
+        fullName: clientData.fullName,
+        cpf: clientData.cpf,
+        email: clientData.email,
+        phone: clientData.phone,
         appointmentDateTime: slotDate.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ' ' + slotDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-        proof_of_residence_url: proofOfResidenceUrl,
-        photo_id_url: photoIdUrl,
-        other_documents_url: otherDocumentsUrl,
+        proof_of_residence_url: clientData.proofOfResidenceUrl,
+        photo_id_url: clientData.photoIdUrl,
+        other_documents_url: clientData.otherDocumentsUrl,
       };
       await sendDataToGoogleSheets(sheetData);
 
@@ -141,11 +90,11 @@ const App: React.FC = () => {
       alert(`Ocorreu um erro: ${error instanceof Error ? error.message : 'Erro desconhecido'}. Por favor, tente novamente.`);
       setBookingStatus('idle');
     }
-  }, [formData, sendDataToGoogleSheets]);
+  }, [clientData, sendDataToGoogleSheets]);
 
   const handleReset = useCallback(() => {
     setStep('form');
-    setFormData(null);
+    setClientData(null);
     setConfirmedSlot(null);
     setBookingStatus('idle');
   }, []);
@@ -155,10 +104,10 @@ const App: React.FC = () => {
       case 'form':
         return <DataForm onSubmit={handleFormSubmit} />;
       case 'scheduler':
-        if (formData) {
+        if (clientData) {
           return (
             <Scheduler
-              formData={formData}
+              clientData={clientData}
               bookedSlots={bookedSlots}
               bookingStatus={bookingStatus}
               confirmedSlot={confirmedSlot}

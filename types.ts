@@ -9,6 +9,16 @@ export interface FormData {
   otherDocuments: File | null;
 }
 
+export interface ClientData {
+  fullName: string;
+  cpf: string;
+  email: string;
+  phone: string;
+  proofOfResidenceUrl: string | null;
+  photoIdUrl: string | null;
+  otherDocumentsUrl: string | null;
+}
+
 export type AppStep = 'form' | 'scheduler';
 export type BookingStatus = 'idle' | 'submitting' | 'success';
 

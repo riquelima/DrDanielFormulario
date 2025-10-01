@@ -1,10 +1,11 @@
+
 import React, { useState, useMemo, useCallback } from 'react';
 import { TIME_SLOTS } from '../constants';
 import { ScalesOfJusticeIcon } from './icons/ScalesOfJusticeIcon';
-import type { BookingStatus, FormData } from '../types';
+import type { BookingStatus, ClientData } from '../types';
 
 interface SchedulerProps {
-  formData: FormData;
+  clientData: ClientData;
   bookedSlots: string[];
   bookingStatus: BookingStatus;
   confirmedSlot: Date | null;
@@ -19,7 +20,7 @@ const DetailItem: React.FC<{label: string, value: string | undefined}> = ({label
   </div>
 );
 
-const Scheduler: React.FC<SchedulerProps> = ({ formData, bookedSlots, bookingStatus, confirmedSlot, onConfirmBooking, onReset }) => {
+const Scheduler: React.FC<SchedulerProps> = ({ clientData, bookedSlots, bookingStatus, confirmedSlot, onConfirmBooking, onReset }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
@@ -37,7 +38,6 @@ const Scheduler: React.FC<SchedulerProps> = ({ formData, bookedSlots, bookingSta
     slotDate.setHours(hour, minute, 0, 0);
     return slotDate;
   }, [selectedDate, selectedTime]);
-
 
   const calendarDays = useMemo(() => {
     const year = currentDate.getFullYear();
@@ -82,6 +82,24 @@ const Scheduler: React.FC<SchedulerProps> = ({ formData, bookedSlots, bookingSta
     setSelectedTime(time);
   };
 
+  const getFileNameFromUrl = (url: string | null | undefined): string | undefined => {
+    if (!url) return undefined;
+    try {
+      const decodedUrl = decodeURIComponent(url);
+      const pathSegments = new URL(decodedUrl).pathname.split('/');
+      const lastSegment = pathSegments.pop() || '';
+      // Assuming filename format is fieldName-timestamp-originalFileName.ext
+      const nameParts = lastSegment.split('-');
+      if (nameParts.length > 2) {
+        return nameParts.slice(2).join('-');
+      }
+      return lastSegment;
+    } catch (e) {
+      console.error("Could not parse file name from URL", e);
+      return "documento";
+    }
+  };
+
   const daysOfWeek = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
   if (bookingStatus === 'success' && confirmedSlot) {
@@ -113,13 +131,13 @@ const Scheduler: React.FC<SchedulerProps> = ({ formData, bookedSlots, bookingSta
           <div>
             <h3 className="text-lg font-semibold text-blue-300 border-b border-gray-600 pb-2 mb-4">Resumo dos Dados</h3>
             <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
-              <DetailItem label="Nome Completo" value={formData.fullName} />
-              <DetailItem label="CPF" value={formData.cpf} />
-              <DetailItem label="E-mail" value={formData.email} />
-              <DetailItem label="Telefone" value={formData.phone} />
-              <DetailItem label="Comprovante de Residência" value={formData.proofOfResidence?.name} />
-              <DetailItem label="Documento com Foto" value={formData.photoId?.name} />
-              <DetailItem label="Outros Documentos" value={formData.otherDocuments?.name} />
+              <DetailItem label="Nome Completo" value={clientData.fullName} />
+              <DetailItem label="CPF" value={clientData.cpf} />
+              <DetailItem label="E-mail" value={clientData.email} />
+              <DetailItem label="Telefone" value={clientData.phone} />
+              <DetailItem label="Comprovante de Residência" value={getFileNameFromUrl(clientData.proofOfResidenceUrl)} />
+              <DetailItem label="Documento com Foto" value={getFileNameFromUrl(clientData.photoIdUrl)} />
+              <DetailItem label="Outros Documentos" value={getFileNameFromUrl(clientData.otherDocumentsUrl)} />
             </dl>
           </div>
         </div>
@@ -216,10 +234,10 @@ const Scheduler: React.FC<SchedulerProps> = ({ formData, bookedSlots, bookingSta
         <div className="mt-8 bg-slate-900 border border-gray-700 rounded-lg p-6">
           <h3 className="text-lg font-semibold text-blue-300 border-b border-gray-600 pb-2 mb-4">Resumo do Agendamento</h3>
           <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
-            <DetailItem label="Nome Completo" value={formData.fullName} />
-            <DetailItem label="CPF" value={formData.cpf} />
-            <DetailItem label="E-mail" value={formData.email} />
-            <DetailItem label="Telefone" value={formData.phone} />
+            <DetailItem label="Nome Completo" value={clientData.fullName} />
+            <DetailItem label="CPF" value={clientData.cpf} />
+            <DetailItem label="E-mail" value={clientData.email} />
+            <DetailItem label="Telefone" value={clientData.phone} />
             <div className="md:col-span-2">
               <dt className="text-sm font-medium text-gray-400">Horário Selecionado</dt>
               <dd className="mt-1 text-lg font-bold text-green-400">

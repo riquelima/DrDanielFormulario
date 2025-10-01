@@ -1,5 +1,5 @@
 {
-  "name": "Copy of Formulário Dr. Daniel - Coleta de Dados e Agendamento",
+  "name": "Formulário Dr. Daniel - Coleta de Dados e Agendamento - v1",
   "description": "Uma aplicação web para que clientes do Dr. Daniel possam submeter seus dados e documentos, e em seguida, agendar uma consulta online. O formulário é seguido por um calendário de agendamento interativo.",
   "requestFramePermissions": []
 }
