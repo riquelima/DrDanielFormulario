@@ -2,8 +2,7 @@ import React, { useState, useCallback } from 'react';
 import DataForm from './components/DataForm';
 import Scheduler from './components/Scheduler';
 import { AppStep, BookingStatus, FormData } from './types';
-
-const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxayos1VfiQm34KmEdzFahSkx5Ii4tiTlLqZ0Se8xyThIjuD6OyOY5e6kwDvk47FKYX/exec';
+import { supabase } from './lib/supabaseClient';
 
 const App: React.FC = () => {
   const [step, setStep] = useState<AppStep>('form');
@@ -17,50 +16,78 @@ const App: React.FC = () => {
     setStep('scheduler');
   }, []);
 
-  const sendDataToGoogleSheets = async (data: FormData, slot: Date) => {
-    const dataToSend = {
-      fullName: data.fullName,
-      cpf: data.cpf,
-      email: data.email,
-      phone: data.phone,
-      appointmentDateTime: slot.toLocaleString('pt-BR', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      }).replace(',', ''),
-    };
-
-    try {
-      // O Google Scripts com 'no-cors' não retorna um status de sucesso real para o cliente,
-      // mas ainda envia os dados. Presumimos sucesso se não houver um erro de rede.
-      await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(dataToSend),
-        mode: 'no-cors',
-      });
-      console.log('Solicitação de envio para o Google Sheets enviada.');
-      return true;
-    } catch (error) {
-      console.error("Erro ao enviar dados para o Google Sheets:", error);
-      alert('Ocorreu um erro ao enviar seus dados. Por favor, tente novamente.');
-      return false;
-    }
-  };
-
   const handleConfirmBooking = useCallback(async (slotDate: Date) => {
     if (!formData) return;
 
     setBookingStatus('submitting');
-    const success = await sendDataToGoogleSheets(formData, slotDate);
-    
-    if (success) {
+
+    try {
+      // Helper function to create a safe folder name from the client's name
+      const sanitizeFolderName = (name: string) => {
+        return name
+          .normalize("NFD") // Decompose accented characters
+          .replace(/[\u0300-\u036f]/g, "") // Remove diacritics
+          .replace(/[^\w\s-]/g, '') // Remove non-word characters (except spaces and hyphens)
+          .trim()
+          .replace(/\s+/g, '_'); // Replace spaces with underscores
+      };
+
+      // Helper para fazer upload de um arquivo e retornar sua URL pública
+      const uploadFile = async (file: File | null, fieldName: string): Promise<string | null> => {
+        if (!file) return null;
+        
+        // Cria um caminho de pasta usando uma versão higienizada do nome do cliente
+        const folderName = sanitizeFolderName(formData.fullName);
+        
+        // Cria um caminho único para o arquivo
+        const filePath = `${folderName}/${fieldName}-${Date.now()}-${file.name}`;
+        
+        const { error: uploadError } = await supabase.storage
+          .from('documents')
+          .upload(filePath, file);
+
+        if (uploadError) {
+          throw new Error(`Falha no upload do arquivo ${fieldName}: ${uploadError.message}`);
+        }
+
+        const { data } = supabase.storage
+          .from('documents')
+          .getPublicUrl(filePath);
+        
+        return data.publicUrl;
+      };
+
+      // Faz o upload dos arquivos em paralelo
+      const [proofOfResidenceUrl, photoIdUrl, otherDocumentsUrl] = await Promise.all([
+        uploadFile(formData.proofOfResidence, 'proofOfResidence'),
+        uploadFile(formData.photoId, 'photoId'),
+        uploadFile(formData.otherDocuments, 'otherDocuments'),
+      ]);
+
+      // Insere os dados no banco de dados
+      const { error: insertError } = await supabase.from('appointments').insert({
+        full_name: formData.fullName,
+        cpf: formData.cpf,
+        email: formData.email,
+        phone: formData.phone,
+        appointment_datetime: slotDate.toISOString(),
+        proof_of_residence_url: proofOfResidenceUrl,
+        photo_id_url: photoIdUrl,
+        other_documents_url: otherDocumentsUrl,
+      });
+
+      if (insertError) {
+        throw new Error(`Falha ao salvar o agendamento: ${insertError.message}`);
+      }
+      
+      // Atualiza o estado da UI em caso de sucesso
       setConfirmedSlot(slotDate);
       setBookedSlots(prev => [...prev, slotDate.toISOString()]);
       setBookingStatus('success');
-    } else {
+
+    } catch (error) {
+      console.error("Erro ao processar o agendamento:", error);
+      alert(`Ocorreu um erro: ${error instanceof Error ? error.message : 'Erro desconhecido'}. Por favor, tente novamente.`);
       setBookingStatus('idle'); // Reseta se houver falha
     }
   }, [formData]);

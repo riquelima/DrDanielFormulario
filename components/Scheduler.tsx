@@ -99,7 +99,7 @@ const Scheduler: React.FC<SchedulerProps> = ({ formData, bookedSlots, bookingSta
         <div className="bg-slate-900 border border-gray-700 rounded-lg p-6 space-y-6">
           <div className="flex items-center space-x-3 bg-green-900/50 border border-green-700 p-3 rounded-lg">
             <svg className="w-6 h-6 text-green-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-            <p className="text-sm font-medium text-green-300">Seus dados de agendamento foram enviados com sucesso.</p>
+            <p className="text-sm font-medium text-green-300">Seus dados e documentos foram enviados com sucesso.</p>
           </div>
           <div>
             <h3 className="text-lg font-semibold text-blue-300 border-b border-gray-600 pb-2 mb-4">Horário Agendado</h3>
@@ -117,6 +117,9 @@ const Scheduler: React.FC<SchedulerProps> = ({ formData, bookedSlots, bookingSta
               <DetailItem label="CPF" value={formData.cpf} />
               <DetailItem label="E-mail" value={formData.email} />
               <DetailItem label="Telefone" value={formData.phone} />
+              <DetailItem label="Comprovante de Residência" value={formData.proofOfResidence?.name} />
+              <DetailItem label="Documento com Foto" value={formData.photoId?.name} />
+              <DetailItem label="Outros Documentos" value={formData.otherDocuments?.name} />
             </dl>
           </div>
         </div>
