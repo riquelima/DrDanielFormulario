@@ -1,10 +1,21 @@
+
 import React, { useState, useCallback } from 'react';
 import DataForm from './components/DataForm';
 import Scheduler from './components/Scheduler';
+import LoginModal from './components/LoginModal';
+import AdminDashboard from './components/AdminDashboard';
+import { useAuth } from './contexts/AuthContext';
 import { AppStep, BookingStatus, FormData } from './types';
+import { LoginIcon } from './components/icons/LoginIcon';
 import { supabase } from './lib/supabaseClient';
 
+const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxayos1VfiQm34KmEdzFahSkx5Ii4tiTlLqZ0Se8xyThIjuD6OyOY5e6kwDvk47FKYX/exec';
+
 const App: React.FC = () => {
+  const { user } = useAuth();
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  
+  // State for booking flow
   const [step, setStep] = useState<AppStep>('form');
   const [formData, setFormData] = useState<FormData | null>(null);
   const [bookedSlots, setBookedSlots] = useState<string[]>([]);
@@ -16,30 +27,46 @@ const App: React.FC = () => {
     setStep('scheduler');
   }, []);
 
+  const sendDataToGoogleSheets = useCallback(async (data: Record<string, any>) => {
+    if (!GOOGLE_SCRIPT_URL.startsWith('https://')) {
+      console.warn('URL do Google Apps Script não configurada. Dados não foram enviados para a planilha.');
+      return;
+    }
+
+    try {
+      await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data),
+      });
+    } catch (error) {
+      console.error('Falha ao enviar dados para o Google Sheets:', error);
+    }
+  }, []);
+
+
   const handleConfirmBooking = useCallback(async (slotDate: Date) => {
     if (!formData) return;
 
     setBookingStatus('submitting');
 
     try {
-      // Helper function to create a safe folder name from the client's name
       const sanitizeFolderName = (name: string) => {
         return name
-          .normalize("NFD") // Decompose accented characters
-          .replace(/[\u0300-\u036f]/g, "") // Remove diacritics
-          .replace(/[^\w\s-]/g, '') // Remove non-word characters (except spaces and hyphens)
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^\w\s-]/g, '')
           .trim()
-          .replace(/\s+/g, '_'); // Replace spaces with underscores
+          .replace(/\s+/g, '_');
       };
 
-      // Helper para fazer upload de um arquivo e retornar sua URL pública
       const uploadFile = async (file: File | null, fieldName: string): Promise<string | null> => {
         if (!file) return null;
         
-        // Cria um caminho de pasta usando uma versão higienizada do nome do cliente
         const folderName = sanitizeFolderName(formData.fullName);
-        
-        // Cria um caminho único para o arquivo
         const filePath = `${folderName}/${fieldName}-${Date.now()}-${file.name}`;
         
         const { error: uploadError } = await supabase.storage
@@ -57,14 +84,12 @@ const App: React.FC = () => {
         return data.publicUrl;
       };
 
-      // Faz o upload dos arquivos em paralelo
       const [proofOfResidenceUrl, photoIdUrl, otherDocumentsUrl] = await Promise.all([
         uploadFile(formData.proofOfResidence, 'proofOfResidence'),
         uploadFile(formData.photoId, 'photoId'),
         uploadFile(formData.otherDocuments, 'otherDocuments'),
       ]);
 
-      // Insere os dados no banco de dados
       const { error: insertError } = await supabase.from('appointments').insert({
         full_name: formData.fullName,
         cpf: formData.cpf,
@@ -80,7 +105,33 @@ const App: React.FC = () => {
         throw new Error(`Falha ao salvar o agendamento: ${insertError.message}`);
       }
       
-      // Atualiza o estado da UI em caso de sucesso
+      supabase.functions.invoke('sync-to-google-drive', {
+        body: {
+          folderName: sanitizeFolderName(formData.fullName),
+          proofOfResidenceUrl,
+          photoIdUrl,
+          otherDocumentsUrl,
+        },
+      }).then(({ data, error }) => {
+        if (error) {
+          console.error('Falha ao invocar a Edge Function para sincronizar com o Google Drive:', error);
+        } else {
+          console.log('Sincronização com Google Drive iniciada com sucesso:', data);
+        }
+      });
+      
+      const sheetData = {
+        fullName: formData.fullName,
+        cpf: formData.cpf,
+        email: formData.email,
+        phone: formData.phone,
+        appointmentDateTime: slotDate.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ' ' + slotDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        proof_of_residence_url: proofOfResidenceUrl,
+        photo_id_url: photoIdUrl,
+        other_documents_url: otherDocumentsUrl,
+      };
+      await sendDataToGoogleSheets(sheetData);
+
       setConfirmedSlot(slotDate);
       setBookedSlots(prev => [...prev, slotDate.toISOString()]);
       setBookingStatus('success');
@@ -88,9 +139,9 @@ const App: React.FC = () => {
     } catch (error) {
       console.error("Erro ao processar o agendamento:", error);
       alert(`Ocorreu um erro: ${error instanceof Error ? error.message : 'Erro desconhecido'}. Por favor, tente novamente.`);
-      setBookingStatus('idle'); // Reseta se houver falha
+      setBookingStatus('idle');
     }
-  }, [formData]);
+  }, [formData, sendDataToGoogleSheets]);
 
   const handleReset = useCallback(() => {
     setStep('form');
@@ -99,7 +150,7 @@ const App: React.FC = () => {
     setBookingStatus('idle');
   }, []);
 
-  const renderStep = () => {
+  const renderBookingFlow = () => {
     switch (step) {
       case 'form':
         return <DataForm onSubmit={handleFormSubmit} />;
@@ -116,7 +167,6 @@ const App: React.FC = () => {
             />
           );
         }
-        // Se formData for nulo, volta ao formulário
         handleReset();
         return null;
       default:
@@ -125,11 +175,28 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
-      <div className="w-full max-w-4xl mx-auto">
-        {renderStep()}
+    <>
+      {!user && (
+        <button
+          onClick={() => setIsLoginModalOpen(true)}
+          className="absolute top-4 right-4 p-2 text-gray-400 hover:text-white transition-colors z-10"
+          aria-label="Acesso do Administrador"
+        >
+          <LoginIcon className="w-6 h-6" />
+        </button>
+      )}
+
+      <LoginModal isOpen={isLoginModalOpen} onClose={() => setIsLoginModalOpen(false)} />
+      
+      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
+        <div className="w-full max-w-7xl mx-auto">
+          {user 
+            ? <AdminDashboard /> 
+            : <div className="w-full max-w-4xl mx-auto">{renderBookingFlow()}</div>
+          }
+        </div>
       </div>
-    </div>
+    </>
   );
 };
 
